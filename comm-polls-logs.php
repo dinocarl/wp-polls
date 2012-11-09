@@ -22,27 +22,124 @@ if(!current_user_can('manage_polls')) {
 	die('Access Denied');
 }
 
+/**
+ * Functions
+ */
+
+/**
+ * set_sql_limit()
+ * 
+ * @param int $page - The current page number
+ * @return string - the SQL LIMIT
+ */
+function set_sql_limit($page) {
+	
+	global $results_per_page;
+	
+	$row = 0;
+	
+	for($i=1; $i<$page; $i++) {
+		
+		$row = $row + $results_per_page;
+	}
+	
+	return ' LIMIT ' . $row . ',' . $results_per_page;
+}
+
+function return_page_link($page_num) {
+	
+	global $prev_page;
+
+	$current_url = (! empty($_SERVER['HTTPS']) ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+	
+	if(isset($_GET['pg']) || $prev_page) {
+		
+		unset($_GET['pg']);
+		
+		$url_parts = parse_url($current_url);
+		
+		//Reassemble query string
+		$qs = '?';
+		
+		foreach($_GET as $key=>$value) {
+			
+			$qs .= $key.'='.$value.'&';
+		}
+		
+		$qs .= 'pg=' . $page_num;
+		
+		return wp_nonce_url($url_parts['scheme'] . '://' . $url_parts['host'] . ((isset($url_parts['port'])) ? ':'.$url_parts['port'] : null) .$url_parts['path'] . $qs . return_filter_params_qs(), 'wp-polls_logs');
+		
+	}
+	
+		return wp_nonce_url($current_url . '&pg=' . $page_num . return_filter_params_qs(), 'wp-polls_logs');
+}
+
+function showing_results($page_num) {
+	
+	global $results_per_page, $poll_ips, $poll_logs_count;
+	
+	$omega = $page_num * $results_per_page;
+	$begin = ($page_num != 1) ? (($omega - $results_per_page) + 1) : 1;
+	$end = ($page_num != 1) ? (($begin + count($poll_ips)) - 1) : $results_per_page;
+	
+	return 'Showing records ' . $begin . ' - ' . $end;
+}
+
+function return_filter_params_qs() {
+	
+	if(isset($_POST['do']) && $_POST['do'] == 'Filter') {
+		
+		return '&do=Filter&users_voted_for='. $_POST['users_voted_for'] . '&filter=' . $_POST['filter'];
+	}
+	
+	return null;
+}
+
+
+//Pagination
+$page = (isset($_GET['pg'])) ? $_GET['pg'] : 1;
+$results_per_page = 2;
+$limit = set_sql_limit($page);
 
 ### Variables
-$max_records = 2000;
+
 $pollip_answers = array();
+
+//Basic Poll Data
 $poll_question_data = $wpdb->get_row("SELECT pollq_multiple, pollq_question, pollq_totalvoters FROM $wpdb->pollsq WHERE pollq_id = $poll_id");
 $poll_question = stripslashes($poll_question_data->pollq_question);
 $poll_totalvoters = intval($poll_question_data->pollq_totalvoters);
 $poll_multiple = intval($poll_question_data->pollq_multiple);
+
+//Number of answers submitted by registered users
 $poll_registered = $wpdb->get_var("SELECT COUNT(pollip_userid) FROM $wpdb->pollsip WHERE pollip_qid = $poll_id AND pollip_userid > 0");
-$poll_comments = $wpdb->get_var("SELECT COUNT(pollip_user) FROM $wpdb->pollsip WHERE pollip_qid = $poll_id AND pollip_user != '".__('Guest', 'wp-polls')."' AND pollip_userid = 0");
+
+//Number of answers submitted from comment authors
+$poll_comments =  $wpdb->get_var("SELECT COUNT(pollip_user) FROM $wpdb->pollsip WHERE pollip_qid = $poll_id AND pollip_user != '".__('Guest', 'wp-polls')."' AND pollip_userid = 0");
+
+//Number of polls submitted by guests
 $poll_guest = $wpdb->get_var("SELECT COUNT(pollip_user) FROM $wpdb->pollsip WHERE pollip_qid = $poll_id AND pollip_user = '".__('Guest', 'wp-polls')."'");
+
+//Total answers submitted by registered, comment authors, and guests
 $poll_totalrecorded = ($poll_registered+$poll_comments+$poll_guest);
+
+//Get possible poll answers configured for this poll
 $poll_answers_data = $wpdb->get_results("SELECT polla_aid, polla_answers FROM $wpdb->pollsa WHERE polla_qid = $poll_id ORDER BY ".get_option('poll_ans_sortby').' '.get_option('poll_ans_sortorder'));
-$poll_voters = $wpdb->get_col("SELECT DISTINCT pollip_user FROM $wpdb->pollsip WHERE pollip_qid = $poll_id AND pollip_user != '".__('Guest', 'wp-polls')."' ORDER BY pollip_user ASC");
+
+//Get list of users who submitted answers for this poll
+//$poll_voters = $wpdb->get_col("SELECT DISTINCT pollip_user FROM $wpdb->pollsip WHERE pollip_qid = $poll_id AND pollip_user != '".__('Guest', 'wp-polls')."' ORDER BY pollip_user ASC");
+
+//Total number of answers submitted for this poll
 $poll_logs_count = $wpdb->get_var("SELECT COUNT(pollip_id) FROM $wpdb->pollsip WHERE pollip_qid = $poll_id");
 
 
 ### Process Filters
-if(!empty($_POST['do'])) {
-	check_admin_referer('wp-polls_logs');
-	$registered_sql = '';
+if(!empty($_REQUEST['do'])) {
+	
+	
+	if(! wp_verify_nonce($_REQUEST['_wpnonce'], 'wp-polls_logs')) die('You do not have permission to perform this action');
+	
 	$comment_sql = '';
 	$guest_sql = '';
 	$users_voted_for_sql = '';
@@ -50,26 +147,12 @@ if(!empty($_POST['do'])) {
 	$num_choices_sql = '';
 	$num_choices_sign_sql = '';
 	$order_by = '';
-	switch(intval($_POST['filter'])) {
+	switch(intval($_REQUEST['filter'])) {
 		case 1:
-			$users_voted_for = intval($_POST['users_voted_for']);
-			$exclude_registered = intval($_POST['exclude_registered']);
-			$exclude_comment = intval($_POST['exclude_comment']);
-			$exclude_guest = intval($_POST['exclude_guest']);
+			$users_voted_for = intval($_REQUEST['users_voted_for']);
+			
 			$users_voted_for_sql = "AND pollip_aid = $users_voted_for";
-			if($exclude_registered) {
-				$registered_sql = 'AND pollip_userid = 0';
-			}
-			if($exclude_comment) {
-				if(!$exclude_registered) {
-					$comment_sql = 'AND pollip_userid > 0';
-				} else {
-					$comment_sql = 'AND pollip_user = \''.__('Guest', 'wp-polls').'\'';
-				}
-			}
-			if($exclude_guest) {
-				$guest_sql  = 'AND pollip_user != \''.__('Guest', 'wp-polls').'\'';
-			}
+			
 			$order_by = 'pollip_timestamp DESC';
 			break;
 		case 2:
@@ -87,7 +170,7 @@ if(!empty($_POST['do'])) {
 				case 'exactly':
 					$num_choices_sign_sql = '=';
 					break;
-				case 'less_exactly':
+				case 'less_exactly'://var_dump($poll_logs_count);
 					$num_choices_sign_sql = '<=';
 					break;
 				case 'less':
@@ -115,11 +198,15 @@ if(!empty($_POST['do'])) {
 			$order_by = 'pollip_user, pollip_ip';
 			break;
 	}
-	$poll_ips = $wpdb->get_results("SELECT $wpdb->pollsip.*, $wpdb->users.user_email FROM $wpdb->pollsip INNER JOIN $wpdb->users ON $wpdb->pollsip.pollip_userid = $wpdb->users.ID WHERE pollip_qid = $poll_id $users_voted_for_sql $registered_sql $comment_sql $guest_sql $what_user_voted_sql $num_choices_sql ORDER BY $order_by");
+	
+	$poll_logs_count = $wpdb->get_var("SELECT COUNT(pollip_aid) FROM $wpdb->pollsip WHERE pollip_qid = $poll_id $users_voted_for_sql $comment_sql $guest_sql $what_user_voted_sql $num_choices_sql ORDER BY $order_by");
+	$poll_ips = $wpdb->get_results("SELECT $wpdb->pollsip.*, $wpdb->users.user_email FROM $wpdb->pollsip INNER JOIN $wpdb->users ON $wpdb->pollsip.pollip_userid = $wpdb->users.ID WHERE pollip_qid = $poll_id $users_voted_for_sql $comment_sql $guest_sql $what_user_voted_sql $num_choices_sql ORDER BY $order_by $limit");
 } else {
-	$poll_ips = $wpdb->get_results("SELECT p.pollip_aid, p.pollip_ip, p.pollip_host, p.pollip_timestamp, p.pollip_user, u.user_email FROM $wpdb->pollsip p INNER JOIN $wpdb->users u ON p.pollip_userid = u.ID WHERE p.pollip_qid = $poll_id ORDER BY pollip_aid ASC, pollip_user ASC LIMIT $max_records");
+	
+	$poll_ips = $wpdb->get_results("SELECT p.pollip_aid, p.pollip_ip, p.pollip_host, p.pollip_timestamp, p.pollip_user, u.user_email FROM $wpdb->pollsip p INNER JOIN $wpdb->users u ON p.pollip_userid = u.ID WHERE p.pollip_qid = $poll_id ORDER BY pollip_aid ASC, pollip_user ASC $limit");
 }
 ?>
+
 <?php if(!empty($text)) { echo '<!-- Last Action --><div id="message" class="updated fade">'.stripslashes($text).'</div>'; } else { echo '<div id="message" class="updated" style="display: none;"></div>'; } ?>
 <div class="wrap">
 	<div id="icon-wp-polls" class="icon32"><br /></div>
@@ -127,19 +214,18 @@ if(!empty($_POST['do'])) {
 	<h3><?php echo $poll_question; ?></h3>
 	<p>
 		<?php printf(_n('There are a total of <strong>%s</strong> recorded vote for this poll.', 'There are a total of <strong>%s</strong> recorded votes for this poll.', $poll_totalrecorded, 'wp-polls'), number_format_i18n($poll_totalrecorded)); ?><br />
-		<?php printf(_n('<strong>&raquo;</strong> <strong>%s</strong> vote is casted by registered users', '<strong>&raquo;</strong> <strong>%s</strong> votes are casted by registered users', $poll_registered, 'wp-polls'), number_format_i18n($poll_registered)); ?><br />
-		<?php printf(_n('<strong>&raquo;</strong> <strong>%s</strong> vote is casted by comment authors', '<strong>&raquo;</strong> <strong>%s</strong> votes are casted by comment authors', $poll_comments, 'wp-polls'), number_format_i18n($poll_comments)); ?><br />
-		<?php printf(_n('<strong>&raquo;</strong> <strong>%s</strong> vote is casted by guests', '<strong>&raquo;</strong> <strong>%s</strong> votes are casted by guests', $poll_guest, 'wp-polls'), number_format_i18n($poll_guest)); ?>
 	</p>
 </div>
-<?php if($poll_totalrecorded > 0) { ?>
+<?php if($poll_totalrecorded > 0):?>
 <div class="wrap">
 	<h3><?php _e('Filter Poll\'s Logs', 'wp-polls') ?></h3>
 	<table width="100%"  border="0" cellspacing="0" cellpadding="0">
 		<tr>
 			<td width="50%">
 				<form method="post" action="<?php echo admin_url('admin.php?page='.$base_name.'&amp;mode=logs&amp;id='.$poll_id); ?>">
-				<?php wp_nonce_field('wp-polls_logs'); ?>
+				
+				<input type="hidden" name="_wpnonce" value="<?php echo wp_create_nonce('wp-polls_logs')?>" />
+				
 				<p style="display: none;"><input type="hidden" name="filter" value="1" /></p>
 				<table class="form-table">
 					<tr>
@@ -161,127 +247,37 @@ if(!empty($_POST['do'])) {
 									}
 								?>
 							</select>
+							<input type="submit" name="do" value="<?php _e('Filter', 'wp-polls'); ?>" class="button" />
 						</td>
-					</tr>
-					<tr>
-						<th scope="row" valign="top"><?php _e('Voters To EXCLUDE', 'wp-polls'); ?></th>
-						<td>
-							<input type="checkbox" id="exclude_registered_1" name="exclude_registered" value="1" <?php checked('1', $exclude_registered); ?> />&nbsp;<label for="exclude_registered_1"><?php _e('Registered Users', 'wp-polls'); ?></label><br />
-							<input type="checkbox" id="exclude_comment_1" name="exclude_comment" value="1" <?php checked('1', $exclude_comment); ?> />&nbsp;<label for="exclude_comment_1"><?php _e('Comment Authors', 'wp-polls'); ?></label><br />
-							<input type="checkbox" id="exclude_guest_1" name="exclude_guest" value="1" <?php checked('1', $exclude_guest); ?> />&nbsp;<label for="exclude_guest_1"><?php _e('Guests', 'wp-polls'); ?></label>
-						</td>
-					</tr>
-					<tr>
-						<td colspan="2" align="center"><input type="submit" name="do" value="<?php _e('Filter', 'wp-polls'); ?>" class="button" /></td>
-					</tr>
+						
+						<tr><td colspan="2"><input type="button" value="<?php _e('Clear Filter', 'wp-polls'); ?>" onclick="self.location.href = '<?php echo htmlspecialchars($base_page); ?>&amp;mode=logs&amp;id=<?php echo $poll_id; ?>';" class="button" /></td></tr>
 				</table>
 				</form>
 			</td>
-			<td width="50%">
-				<?php if($poll_multiple > 0) { ?>
-					<form method="post" action="<?php echo admin_url('admin.php?page='.$base_name.'&amp;mode=logs&amp;id='.$poll_id); ?>">
-					<?php wp_nonce_field('wp-polls_logs'); ?>
-					<p style="display: none;"><input type="hidden" name="filter" value="2" /></p>
-					<table class="form-table">
-						<tr>
-							<th scope="row" valign="top"><?php _e('Display Users That Voted For', 'wp-polls'); ?></th>
-							<td>
-								<select name="num_choices_sign" size="1">
-									<option value="more" <?php selected('more', $num_choices_sign); ?>><?php _e('More Than', 'wp-polls'); ?></option>
-									<option value="more_exactly" <?php selected('more_exactly', $num_choices_sign); ?>><?php _e('More Than Or Exactly', 'wp-polls'); ?></option>
-									<option value="exactly" <?php selected('exactly', $num_choices_sign); ?>><?php _e('Exactly', 'wp-polls'); ?></option>
-									<option value="less_exactly" <?php selected('less_exactly', $num_choices_sign); ?>><?php _e('Less Than Or Exactly', 'wp-polls'); ?></option>
-									<option value="less" <?php selected('less', $num_choices_sign); ?>><?php _e('Less Than', 'wp-polls'); ?></option>
-								</select>
-								&nbsp;&nbsp;
-								<select name="num_choices" size="1">
-									<?php 
-										for($i = 1; $i <= $poll_multiple; $i++) {
-											if($i == 1) {
-												echo '<option value="1">'.__('1 Answer', 'wp-polls').'</option>';
-											} else {
-												if($i == $num_choices) {
-													echo '<option value="'.$i.'" selected="selected">'.sprintf(_n('%s Answer', '%s Answers', $i, 'wp-polls'), number_format_i18n($i)).'</option>';
-												} else {
-													echo '<option value="'.$i.'">'.sprintf(_n('%s Answer', '%s Answers', $i, 'wp-polls'), number_format_i18n($i)).'</option>';
-												}
-											}
-										}
-									?>
-								</select>
-							</td>
-						</tr>
-						<tr>
-							<th scope="row" valign="top"><?php _e('Voters To EXCLUDE', 'wp-polls'); ?></th>
-							<td>
-								<input type="checkbox" id="exclude_registered_2" name="exclude_registered_2" value="1" <?php checked('1', $exclude_registered_2); ?> />&nbsp;<label for="exclude_registered_2"><?php _e('Registered Users', 'wp-polls'); ?></label><br />
-								<input type="checkbox" id="exclude_comment_2" name="exclude_comment_2" value="1" <?php checked('1', $exclude_comment_2); ?> />&nbsp;<label for="exclude_comment_2"><?php _e('Comment Authors', 'wp-polls'); ?></label><br />
-								<?php _e('Guests will automatically be excluded', 'wp-polls'); ?>
-							</td>
-						</tr>
-						<tr>
-							<td colspan="2" align="center"><input type="submit" name="do" value="<?php _e('Filter', 'wp-polls'); ?>" class="button" /></td>
-						</tr>
-					</table>
-					</form>
-				<?php } else { ?>
-					&nbsp;
-				<?php } // End if($poll_multiple > -1) ?>				
-			</td>
-		</tr>
-		<tr>
-			<td>
-				<?php if($poll_voters) { ?>
-				<form method="post" action="<?php echo admin_url('admin.php?page='.$base_name.'&amp;mode=logs&amp;id='.$poll_id); ?>">
-				<?php wp_nonce_field('wp-polls_logs'); ?>
-				<p style="display: none;"><input type="hidden" name="filter" value="3" /></p>
-				<table class="form-table">
-					<tr>
-						<th scope="row" valign="top"><?php _e('Display What This User Has Voted', 'wp-polls'); ?></th>
-						<td>
-							<select name="what_user_voted" size="1">
-								<?php
-									if($poll_voters) {
-										foreach($poll_voters as $pollip_user) {
-											if($pollip_user == $what_user_voted) {
-												echo '<option value="'.stripslashes(htmlspecialchars($pollip_user)).'" selected="selected">'.stripslashes(htmlspecialchars($pollip_user)).'</option>';
-											} else {
-												echo '<option value="'.stripslashes(htmlspecialchars($pollip_user)).'">'.stripslashes(htmlspecialchars($pollip_user)).'</option>';
-											}
-										}
-									}
-								?>
-							</select>
-						</td>
-					</tr>
-					<tr>
-						<td colspan="2" align="center"><input type="submit" name="do" value="<?php _e('Filter', 'wp-polls'); ?>" class="button" /></td>
-					</tr>
-				</table>
-				</form>
-				<?php } else { ?>
-					&nbsp;
-				<?php } // End if($poll_multiple > -1) ?>		
-			</td>
-			<td align="center"><input type="button" value="<?php _e('Clear Filter', 'wp-polls'); ?>" onclick="self.location.href = '<?php echo htmlspecialchars($base_page); ?>&amp;mode=logs&amp;id=<?php echo $poll_id; ?>';" class="button" /></td>
 		</tr>
 	</table>
 </div>
 <p>&nbsp;</p>
-<?php } // End if($poll_totalrecorded > 0) ?>
+<?php endif;?>
+
 <div class="wrap">
 	<h3><?php _e('Poll Logs', 'wp-polls'); ?></h3>
 	<div id="poll_logs_display">
 		<?php
 			if($poll_ips) {
-				if(empty($_POST['do'])) {
-					echo '<p>'.sprintf(__('This default filter is limited to display only <strong>%s</strong> records.', 'wp-polls'), number_format_i18n($max_records)).'</p>';
+				
+				if(empty($_REQUEST['do'])) {
+					echo '<p>'.__('There are  <strong>'. $poll_logs_count .'</strong> records for this poll.', 'wp-polls') .'</p>';
+				} else {
+					echo '<p>' . __('There are  <strong>'. $poll_logs_count .'</strong> filtered records for this poll.', 'wp-polls') . '</p>';
 				}
 				echo '<table class="widefat">'."\n";
 				$k = 1;
 				$j = 0;
 				$poll_last_aid = -1;
-				if(intval($_POST['filter']) > 1) {
+				
+				if(isset($_REQUEST['filter']) && (intval($_REQUEST['filter']) > 1)) {
+					
 					echo "<tr class=\"thead\">\n";
 					echo "<th>".__('Answer', 'wp-polls')."</th>\n";
 					echo "<th>".__('IP', 'wp-polls')."</th>\n";
@@ -289,6 +285,7 @@ if(!empty($_POST['do'])) {
 					echo "<th>".__('E-mail', 'wp-polls')."</th>\n";
 					echo "<th>".__('Date', 'wp-polls')."</th>\n";
 					echo "</tr>\n";
+					
 					foreach($poll_ips as $poll_ip) {
 						$pollip_aid = intval($poll_ip->pollip_aid);
 						$pollip_user = stripslashes($poll_ip->pollip_user);
@@ -303,7 +300,7 @@ if(!empty($_POST['do'])) {
 						}
 						if($pollip_user != $temp_pollip_user) {
 							echo '<tr class="highlight">'."\n";
-							echo "<td colspan=\"4\"><strong>".__('User', 'wp-polls')." ".number_format_i18n($k).": $pollip_user</strong></td>\n";
+							echo "<td colspan=\"5\"><strong>".__('User', 'wp-polls')." ".number_format_i18n($k).": $pollip_user</strong></td>\n";
 							echo '</tr>';
 							$k++;
 						}		
@@ -320,6 +317,7 @@ if(!empty($_POST['do'])) {
 					}
 				} else {
 					foreach($poll_ips as $poll_ip) {
+						
 						$pollip_aid = intval($poll_ip->pollip_aid);
 						$pollip_user = stripslashes($poll_ip->pollip_user);
 						$pollip_email = $poll_ip->user_email;
@@ -328,9 +326,9 @@ if(!empty($_POST['do'])) {
 						$pollip_date = mysql2date(sprintf(__('%s @ %s', 'wp-polls'), get_option('date_format'), get_option('time_format')), gmdate('Y-m-d H:i:s', $poll_ip->pollip_timestamp)); 
 						if($pollip_aid != $poll_last_aid) {
 							if($pollip_aid == 0) {
-								echo "<tr class=\"highlight\">\n<td colspan=\"4\"><strong>$pollip_answers[$pollip_aid]</strong></td>\n</tr>\n";
+								echo "<tr class=\"highlight\">\n<td colspan=\"5\"><strong>$pollip_answers[$pollip_aid]</strong></td>\n</tr>\n";
 							} else {
-								echo "<tr class=\"highlight\">\n<td colspan=\"4\"><strong>".__('Answer', 'wp-polls')." ".number_format_i18n($k).": $pollip_answers[$pollip_aid]</strong></td>\n</tr>\n";
+								echo "<tr class=\"highlight\">\n<td colspan=\"5\"><strong>".__('Answer', 'wp-polls')." ".number_format_i18n($k).": $pollip_answers[$pollip_aid]</strong></td>\n</tr>\n";
 								$k++;
 							}
 							echo "<tr class=\"thead\">\n";
@@ -359,35 +357,35 @@ if(!empty($_POST['do'])) {
 						$j++;
 					}
 				}
+				
+				//Pagination prev & next page vars
+				$prev_page = ($poll_logs_count > $results_per_page && $page > 1) ? ($page - 1) : false;
+				$next_page = ($poll_logs_count > $results_per_page && (($results_per_page * $page) < $poll_logs_count)) ? ($page + 1) : false;
+				
 				echo "<tr class=\"highlight\">\n";
-				echo "<td colspan=\"4\">".sprintf(__('Total number of records that matches this filter: <strong>%s</strong>', 'wp-polls'), number_format_i18n($j))."</td>";
+				echo "<td colspan=\"3\">". showing_results($page)."</td>";
+				echo "<td colspan=\"2\" align=\"right\">";
+				
+					if($prev_page) {
+						
+						echo "<a href='" . return_page_link($prev_page) . "'>&lt;&lt; Previous</a> &nbsp;&nbsp;";
+					} 
+					
+					if($next_page) {
+						
+						echo "<a href='" . return_page_link($next_page) . "'>Next &gt;&gt;</a>";
+					}
+					
+				echo "</td>";
 				echo "</tr>\n";
 				echo '</table>'."\n";
 			}
 		?>
 	</div>
-	<?php if(!empty($_POST['do'])) { ?>
+	<?php if(!empty($_POST['do'])):?>
 		<br class="clear" /><div id="poll_logs_display_none" style="text-align: center; display: <?php if(!$poll_ips) { echo 'block'; } else { echo 'none'; } ?>;" ><?php _e('No poll logs matches the filter.', 'wp-polls'); ?></div>
-	<?php } else { ?>
+	<?php else:?>
 		<br class="clear" /><div id="poll_logs_display_none" style="text-align: center; display: <?php if(!$poll_logs_count) { echo 'block'; } else { echo 'none'; } ?>;" ><?php _e('No poll logs available for this poll.', 'wp-polls'); ?></div>
-	<?php } ?>
+	<?php endif; ?>
 </div>
 <p>&nbsp;</p>
-
-<!-- Delete Poll Logs -->
-<div class="wrap">
-	<h3><?php _e('Delete Poll Logs', 'wp-polls'); ?></h3>
-	<br class="clear" />
-	<div align="center" id="poll_logs">
-		<?php if($poll_logs_count) { ?>
-			<strong><?php _e('Are You Sure You Want To Delete Logs For This Poll Only?', 'wp-polls'); ?></strong><br /><br />
-			<input type="checkbox" id="delete_logs_yes" name="delete_logs_yes" value="yes" />&nbsp;<label for="delete_logs_yes"><?php _e('Yes', 'wp-polls'); ?></label><br /><br />
-			<input type="button" name="do" value="<?php _e('Delete Logs For This Poll Only', 'wp-polls'); ?>" class="button" onclick="delete_this_poll_logs(<?php echo $poll_id; ?>, '<?php printf(esc_js(__('You are about to delete poll logs for this poll \'%s\' ONLY. This action is not reversible.', 'wp-polls')), htmlspecialchars($poll_question)); ?>', '<?php echo wp_create_nonce('wp-polls_delete-poll-logs'); ?>');" />
-		<?php 
-			} else {
-				_e('No poll logs available for this poll.', 'wp-polls');
-			}
-		?>
-	</div>
-	<p><?php _e('Note: If your logging method is by IP and Cookie or by Cookie, users may still be unable to vote if they have voted before as the cookie is still stored in their computer.', 'wp-polls'); ?></p>
-</div>
