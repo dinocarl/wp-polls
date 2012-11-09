@@ -99,7 +99,8 @@ function showing_results($page_num) {
 }
 
 /**
- * return_filter_params_qs() -- Returns querystring params used on filter.
+ * return_filter_params_qs() -- Returns querystring params used on filter. Adds POST vars to querystring.
+ * May not need to use this at all.
  * 
  * @param void
  * @return string|null
@@ -108,7 +109,7 @@ function return_filter_params_qs() {
 	
 	if(isset($_POST['do']) && $_POST['do'] == 'Filter') {
 		
-		return '&do=Filter&users_voted_for='. $_REQUEST['users_voted_for'] . '&filter=' . $_REQUEST['filter'];
+		return '&do=Filter&users_voted_for='. $_POST['users_voted_for'] . '&filter=' . $_POST['filter'];
 	}
 	
 	return null;
