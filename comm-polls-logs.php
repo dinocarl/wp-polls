@@ -46,6 +46,12 @@ function set_sql_limit($page) {
 	return ' LIMIT ' . $row . ',' . $results_per_page;
 }
 
+/**
+ * return_page_link() -- Returns the page link target given the page number.
+ * 
+ * @param int $page_num
+ * @return string - the page link URL
+ */
 function return_page_link($page_num) {
 	
 	global $prev_page;
@@ -75,22 +81,34 @@ function return_page_link($page_num) {
 		return wp_nonce_url($current_url . '&pg=' . $page_num . return_filter_params_qs(), 'wp-polls_logs');
 }
 
+/**
+ * showing_results() -- Returns the showing results text
+ * 
+ * @param int $page_num
+ * @return string - Showing results text
+ */
 function showing_results($page_num) {
 	
 	global $results_per_page, $poll_ips, $poll_logs_count;
 	
 	$omega = $page_num * $results_per_page;
 	$begin = ($page_num != 1) ? (($omega - $results_per_page) + 1) : 1;
-	$end = ($page_num != 1) ? (($begin + count($poll_ips)) - 1) : $results_per_page;
+	$end = ($page_num != 1) ? (($begin + count($poll_ips)) - 1) : count($poll_ips);
 	
 	return 'Showing records ' . $begin . ' - ' . $end;
 }
 
+/**
+ * return_filter_params_qs() -- Returns querystring params used on filter.
+ * 
+ * @param void
+ * @return string|null
+ */
 function return_filter_params_qs() {
 	
 	if(isset($_POST['do']) && $_POST['do'] == 'Filter') {
 		
-		return '&do=Filter&users_voted_for='. $_POST['users_voted_for'] . '&filter=' . $_POST['filter'];
+		return '&do=Filter&users_voted_for='. $_REQUEST['users_voted_for'] . '&filter=' . $_REQUEST['filter'];
 	}
 	
 	return null;
@@ -99,7 +117,7 @@ function return_filter_params_qs() {
 
 //Pagination
 $page = (isset($_GET['pg'])) ? $_GET['pg'] : 1;
-$results_per_page = 2;
+$results_per_page = 200;
 $limit = set_sql_limit($page);
 
 ### Variables
@@ -124,7 +142,7 @@ $poll_guest = $wpdb->get_var("SELECT COUNT(pollip_user) FROM $wpdb->pollsip WHER
 //Total answers submitted by registered, comment authors, and guests
 $poll_totalrecorded = ($poll_registered+$poll_comments+$poll_guest);
 
-//Get possible poll answers configured for this poll
+//Get poll answers configured for this poll
 $poll_answers_data = $wpdb->get_results("SELECT polla_aid, polla_answers FROM $wpdb->pollsa WHERE polla_qid = $poll_id ORDER BY ".get_option('poll_ans_sortby').' '.get_option('poll_ans_sortorder'));
 
 //Get list of users who submitted answers for this poll
