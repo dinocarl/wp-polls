@@ -150,7 +150,7 @@ if(!empty($_POST['do'])) {
 switch($mode) {
 	// Poll Logging
 	case 'logs':
-		require('polls-logs.php');
+		require('comm-polls-logs.php');
 		break;
 	// Edit A Poll
 	case 'edit':

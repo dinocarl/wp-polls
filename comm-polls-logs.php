@@ -95,7 +95,7 @@ function showing_results($page_num) {
 	$begin = ($page_num != 1) ? (($omega - $results_per_page) + 1) : 1;
 	$end = ($page_num != 1) ? (($begin + count($poll_ips)) - 1) : count($poll_ips);
 	
-	return 'Showing records ' . $begin . ' - ' . $end;
+	return ($begin != $end) ? 'Showing records ' . $begin . ' - ' . $end : 'Showing record ' . $begin;
 }
 
 /**

@@ -111,14 +111,16 @@ $count = 0;
 	<h2><?php _e('Add Poll', 'wp-polls'); ?></h2>
 	<!-- Poll Question -->
 	<h3><?php _e('Poll Question', 'wp-polls'); ?></h3>
+	<h4>(Max. Character Limit: 120)</h4>
 	<table class="form-table">
 		<tr>
 			<th width="20%" scope="row" valign="top"><?php _e('Question', 'wp-polls') ?></th>
-			<td width="80%"><input type="text" size="70" name="pollq_question" value="" /></td>
+			<td width="80%"><input type="text" size="70" maxlength="120" name="pollq_question" value="" /></td>
 		</tr>
 	</table>
 	<!-- Poll Answers -->
 	<h3><?php _e('Poll Answers', 'wp-polls'); ?></h3>
+	<h4>(Max. Character Limit: 45)</h4>
 	<table class="form-table">
 		<tfoot>
 			<tr>
@@ -131,7 +133,7 @@ $count = 0;
 			for($i = 1; $i <= $poll_noquestion; $i++) {
 				echo "<tr id=\"poll-answer-$i\">\n";
 				echo "<th width=\"20%\" scope=\"row\" valign=\"top\">".sprintf(__('Answer %s', 'wp-polls'), number_format_i18n($i))."</th>\n";
-				echo "<td width=\"80%\"><input type=\"text\" size=\"50\" maxlength=\"200\" name=\"polla_answers[]\" />&nbsp;&nbsp;&nbsp;<input type=\"button\" value=\"".__('Remove', 'wp-polls')."\" onclick=\"remove_poll_answer_add(".$i.");\" class=\"button\" /></td>\n";
+				echo "<td width=\"80%\"><input type=\"text\" size=\"50\" maxlength=\"45\" name=\"polla_answers[]\" />&nbsp;&nbsp;&nbsp;<input type=\"button\" value=\"".__('Remove', 'wp-polls')."\" onclick=\"remove_poll_answer_add(".$i.");\" class=\"button\" /></td>\n";
 				echo "</tr>\n";
 				$count++;
 			}
