@@ -412,7 +412,7 @@ function check_voted_username($poll_id) {
 	global $wpdb, $user_ID;
 	// Check IP If User Is Guest
 	if (!is_user_logged_in()) {
-		return 1;
+		return 0; //Was originally set to 1, changed due to issue displaying results after voting even when logged out.
 	}
 	$pollsip_userid = intval($user_ID);
 	$log_expiry = intval(get_option('poll_cookielog_expiry'));
