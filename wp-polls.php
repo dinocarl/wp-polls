@@ -1531,6 +1531,7 @@ function polls_page_general_stats($content) {
 			display_polls_archive_link();
 		}
 		echo $after_widget;
+		wp_enqueue_script('wp-polls');
 	}
 
 	// When Widget Control Form Is Posted
